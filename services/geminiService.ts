@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Subtitle } from "../types";
-import { parseTime } from "../utils";
+import { parseTime, processMediaForGemini } from "../utils";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -13,35 +13,46 @@ const cleanJson = (text: string): string => {
   return clean.trim();
 };
 
+// We now accept the file object directly to handle optimization internally if needed,
+// or base64 if pre-processed. For simplicity in the calling code, let's keep the signature flexible
+// but we will use the optimization logic.
 export const generateSubtitlesFromMedia = async (
-  base64Data: string,
-  mimeType: string,
+  mediaFile: File,
   onProgress: (status: string) => void
 ): Promise<Subtitle[]> => {
   try {
-    onProgress("Uploading and analyzing audio structure...");
+    onProgress("Extracting & compressing audio...");
+    
+    // Optimize media: Extract audio -> Downsample to 16kHz -> Mono -> WAV
+    // This drastically reduces upload size and improves Gemini accuracy.
+    const { data: base64Data, mimeType } = await processMediaForGemini(mediaFile);
 
-    // We use a carefully crafted prompt to force JSON output with specific structure
+    onProgress("Gemini is analyzing speech patterns...");
+
+    // Strictly enforced prompt for subtitle standards
     const prompt = `
-      Analyze the provided audio/video track.
-      Generate a JSON array of subtitles for the dialogue.
+      Analyze the audio and generate professional subtitles (SRT style).
       
-      Rules:
-      1. Accurately transcribe spoken text.
-      2. Identify speaker changes.
-      3. Create precise timestamps in standard SRT format (00:00:00,000).
-      4. Keep subtitles between 1 and 7 seconds long.
-      5. Split lines if they exceed 42 characters.
-      6. Return ONLY the JSON.
-
-      Response Schema:
-      Array of objects:
-      {
+      STRICT GUIDELINES:
+      1. LANGUAGE: Detect the spoken language automatically. Transcribe EXACTLY what is said in that language.
+      2. LENGTH: 
+         - Maximum 2 lines per subtitle event.
+         - Maximum 42 characters per line.
+         - ABSOLUTELY NO PARAGRAPHS.
+      3. SPLITTING:
+         - If a sentence is long (>80 chars), SPLIT it into multiple sequential subtitle events.
+         - Do not cram text into one block. Better to have 3 short subtitles than 1 long one.
+      4. TIMING:
+         - Use standard SRT format timestamps (00:00:00,000).
+         - Duration should be between 1 and 6 seconds per event.
+      
+      Return ONLY a JSON array:
+      [{
         "startTime": "00:00:00,000",
         "endTime": "00:00:00,000",
         "speaker": "Speaker Name",
-        "text": "Subtitle text content"
-      }
+        "text": "Line 1 text\\nLine 2 text" 
+      }]
     `;
 
     const response = await ai.models.generateContent({
@@ -90,7 +101,7 @@ export const generateSubtitlesFromMedia = async (
 
   } catch (error) {
     console.error("Gemini Transcription Error:", error);
-    throw new Error("Failed to generate subtitles. Please check if the file size is under limits or try a shorter clip.");
+    throw new Error("Failed to generate subtitles. Please check if the file is valid.");
   }
 };
 
@@ -104,8 +115,10 @@ export const translateSubtitlesWithGemini = async (
     
     const prompt = `
       Translate the following subtitle text to ${targetLanguage}.
-      Maintain the tone and context of a film.
-      Return a JSON array of objects with 'id' and 'translatedText'.
+      Rules:
+      1. Keep the same meaning and tone.
+      2. Keep the translation concise (max 2 lines, max 42 chars/line if possible).
+      3. Return a JSON array of objects with 'id' and 'translatedText'.
       
       Input:
       ${JSON.stringify(subtitlesToTranslate)}

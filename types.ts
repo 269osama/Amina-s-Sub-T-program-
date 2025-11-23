@@ -36,3 +36,32 @@ export const LANGUAGES = [
   { code: 'zh', name: 'Chinese (Simplified)' },
   { code: 'ru', name: 'Russian' },
 ];
+
+// --- Auth & Admin Types ---
+
+export type UserRole = 'user' | 'admin';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  createdAt: number;
+  lastLoginAt: number;
+}
+
+export interface SessionLog {
+  id: string;
+  userId: string;
+  userEmail: string;
+  startTime: number;
+  endTime?: number;
+  durationSeconds?: number;
+}
+
+export interface UserProjectData {
+  userId: string;
+  subtitles: Subtitle[];
+  lastEdited: number;
+  mediaName?: string;
+}
