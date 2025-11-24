@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { Subtitle } from '../types';
 import { formatTime, parseTime } from '../utils';
@@ -74,8 +75,9 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   }, [activeSubtitleId, autoScroll]);
 
   return (
-    <div className="h-full overflow-y-auto bg-zinc-900 border-l border-zinc-800 flex flex-col no-scrollbar">
-      <div className="p-4 border-b border-zinc-800 bg-zinc-900 sticky top-0 z-10 flex justify-between items-center shadow-md">
+    <div className="h-full bg-zinc-900 flex flex-col overflow-hidden relative">
+      {/* Header */}
+      <div className="p-4 border-b border-zinc-800 bg-zinc-900 flex justify-between items-center shadow-md shrink-0 z-10">
         <div className="flex flex-col">
            <h2 className="text-sm font-semibold text-zinc-100 uppercase tracking-wider">Subtitle Tracks</h2>
            <span className="text-xs text-zinc-500">{subtitles.length} events</span>
@@ -90,7 +92,8 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         </button>
       </div>
 
-      <div className="flex-1 p-2 space-y-2 pb-20">
+      {/* Scrollable List */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2 relative pb-20">
         {subtitles.length === 0 && (
           <div className="text-center text-zinc-600 mt-10 p-4 flex flex-col items-center">
             <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center mb-3">

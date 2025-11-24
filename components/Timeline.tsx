@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { Subtitle } from '../types';
 
@@ -54,7 +55,7 @@ const Timeline: React.FC<TimelineProps> = ({ duration, currentTime, subtitles, o
   };
 
   return (
-    <div className="h-36 bg-zinc-950 border-t border-zinc-800 flex flex-col select-none relative group z-0">
+    <div className="h-full bg-zinc-950 border-t border-zinc-800 flex flex-col select-none relative group z-0">
       {/* Time Scale / Ruler */}
       <div className="h-6 w-full bg-zinc-900 border-b border-zinc-800 flex items-center px-2 overflow-hidden z-10">
          <div className="text-[10px] text-zinc-500 font-mono flex justify-between w-full pointer-events-none">

@@ -1,3 +1,4 @@
+
 export interface Subtitle {
   id: string;
   startTime: number; // in seconds
@@ -71,7 +72,7 @@ export interface UserProjectData {
 
 // --- Activity Logging ---
 
-export type ActivityType = 'UPLOAD' | 'GENERATE' | 'TRANSLATE' | 'EXPORT' | 'DUB';
+export type ActivityType = 'UPLOAD' | 'GENERATE' | 'TRANSLATE' | 'EXPORT';
 
 export interface ActivityLog {
   id: string;

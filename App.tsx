@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Subtitle, ProcessingStatus, LANGUAGES, User, ActivityType } from './types';
 import { generateSRT, downloadFile, fileToBase64, processMediaForGemini } from './utils';
-import { generateSubtitlesFromMedia, translateSubtitlesWithGemini, generateDubbedAudio } from './services/geminiService';
+import { generateSubtitlesFromMedia, translateSubtitlesWithGemini } from './services/geminiService';
 import { mockBackend } from './services/mockBackend';
 import VideoPlayer from './components/VideoPlayer';
 import SubtitleEditor from './components/SubtitleEditor';
@@ -17,7 +18,6 @@ import {
   Play, 
   Pause, 
   Globe, 
-  Film,
   Volume2,
   VolumeX,
   Undo,
@@ -25,7 +25,6 @@ import {
   ZoomIn,
   ZoomOut,
   X,
-  ArrowRightLeft,
   LogOut,
   Shield,
   Save,
@@ -33,7 +32,9 @@ import {
   HardDrive,
   Mic,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Minus,
+  Plus
 } from 'lucide-react';
 
 // Routing State
@@ -60,13 +61,12 @@ const App: React.FC = () => {
   const [volume, setVolume] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   
+  // --- UI State (Dropdowns) ---
+  const [isTranslateOpen, setIsTranslateOpen] = useState(false);
+  
   // --- History (Undo/Redo) ---
   const [history, setHistory] = useState<Subtitle[][]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
-
-  // --- Dubbing State ---
-  const [dubAudioUrl, setDubAudioUrl] = useState<string | null>(null);
-  const [dubbingProgress, setDubbingProgress] = useState<number>(0); // 0 to 100
 
   // --- Initialization ---
   useEffect(() => {
@@ -157,7 +157,6 @@ const App: React.FC = () => {
     setSubtitles([]);
     setHistory([]);
     setHistoryIndex(-1);
-    setDubAudioUrl(null);
 
     setMediaName(file.name);
     const url = URL.createObjectURL(file);
@@ -207,6 +206,7 @@ const App: React.FC = () => {
   };
 
   const handleTranslate = async (targetLang: string) => {
+    setIsTranslateOpen(false); // Close menu
     if (subtitles.length === 0) return;
 
     setProcessingStatus(ProcessingStatus.TRANSLATING);
@@ -227,43 +227,6 @@ const App: React.FC = () => {
     } catch (error) {
       setProcessingStatus(ProcessingStatus.ERROR);
       setStatusMessage("Translation failed.");
-    }
-  };
-
-  const handleDubbing = async () => {
-    if (subtitles.length === 0) return;
-
-    setProcessingStatus(ProcessingStatus.ANALYZING); // Reusing status for dubbing
-    setStatusMessage("Preparing text for speech synthesis...");
-    setDubbingProgress(0);
-
-    try {
-      // Compile full script
-      const fullText = subtitles
-        .sort((a, b) => a.startTime - b.startTime)
-        .map(s => s.text)
-        .join(' ');
-
-      if (!fullText.trim()) throw new Error("No text to dub.");
-
-      // Call batch dubbing service
-      const audioUrl = await generateDubbedAudio(fullText, (progress) => {
-         setDubbingProgress(progress);
-         setStatusMessage(`Generating Audio: ${Math.round(progress)}%`);
-      });
-      
-      setDubAudioUrl(audioUrl);
-      setProcessingStatus(ProcessingStatus.READY);
-      setStatusMessage("AI Dub Ready");
-      setDubbingProgress(0);
-
-      logAction('DUB', { fileName: mediaName });
-
-    } catch (error) {
-      console.error(error);
-      setProcessingStatus(ProcessingStatus.ERROR);
-      setStatusMessage("Dubbing failed. " + (error as any).message);
-      setDubbingProgress(0);
     }
   };
 
@@ -298,12 +261,18 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
-    if (window.confirm("Are you sure? This will clear current subtitles.")) {
+    if (window.confirm("Are you sure? This will clear current subtitles and reset the project.")) {
        setSubtitles([]);
        setHistory([]);
        setHistoryIndex(-1);
        setMediaUrl(null);
-       setDubAudioUrl(null);
+       setMediaName("Untitled Project");
+       
+       // Fix: Explicitly clear the file input value so onChange triggers again for the same file
+       const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+       if (fileInput) {
+           fileInput.value = '';
+       }
     }
   };
 
@@ -331,8 +300,26 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col bg-black text-zinc-100 font-sans overflow-hidden">
       
+      {/* Global Backdrop for Menus */}
+      {isTranslateOpen && (
+        <div 
+          className="fixed inset-0 z-20 bg-transparent" 
+          onClick={() => setIsTranslateOpen(false)} 
+        />
+      )}
+
+      {/* Global Progress Bar for Operations */}
+      {(processingStatus === ProcessingStatus.UPLOADING || 
+        processingStatus === ProcessingStatus.ANALYZING || 
+        processingStatus === ProcessingStatus.TRANSLATING) && (
+         <div className="absolute top-0 left-0 right-0 z-50 h-1 bg-zinc-900">
+            <div className="h-full bg-indigo-500 animate-progress-indeterminate shadow-[0_0_10px_rgba(99,102,241,0.5)]" />
+         </div>
+      )}
+
       {/* Header / Toolbar */}
-      <header className="h-16 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between px-4 shrink-0 z-20 shadow-lg">
+      {/* Z-INDEX INCREASED TO 30 to sit above Sidebar (z-20) */}
+      <header className="h-16 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between px-4 shrink-0 z-30 shadow-lg select-none relative">
         
         {/* Left: Branding & File */}
         <div className="flex items-center gap-4">
@@ -340,18 +327,18 @@ const App: React.FC = () => {
             <div className="w-8 h-8 bg-gradient-to-tr from-amber-600 to-amber-400 rounded-lg flex items-center justify-center text-black font-serif font-bold text-lg shadow-lg shadow-amber-900/20">
               A
             </div>
-            <div>
+            <div className="hidden md:block">
               <h1 className="text-sm font-bold tracking-wide text-zinc-100 font-serif">Amina's Work</h1>
               <p className="text-[10px] text-zinc-500 uppercase tracking-widest group-hover:text-amber-500 transition-colors">Studio v2.0</p>
             </div>
           </div>
           
-          <div className="h-8 w-px bg-zinc-800 mx-2"></div>
+          <div className="hidden md:block h-8 w-px bg-zinc-800 mx-2"></div>
 
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 rounded-md cursor-pointer transition-all group">
               <Upload size={14} className="text-zinc-400 group-hover:text-amber-400" />
-              <span className="text-xs font-medium text-zinc-300">Import Media</span>
+              <span className="text-xs font-medium text-zinc-300 hidden md:inline">Import</span>
               <input type="file" id="file-upload" accept="video/*,audio/*" onChange={handleFileUpload} className="hidden" />
             </label>
             
@@ -364,13 +351,13 @@ const App: React.FC = () => {
             </button>
 
             {mediaName && (
-               <span className="text-xs text-zinc-500 max-w-[150px] truncate" title={mediaName}>{mediaName}</span>
+               <span className="text-xs text-zinc-500 max-w-[80px] md:max-w-[150px] truncate hidden sm:block" title={mediaName}>{mediaName}</span>
             )}
           </div>
         </div>
 
-        {/* Center: Playback & Volume */}
-        <div className="flex items-center gap-6 absolute left-1/2 -translate-x-1/2">
+        {/* Center: Playback & Volume (Hidden on small mobile) */}
+        <div className="hidden md:flex items-center gap-6 absolute left-1/2 -translate-x-1/2">
            <div className="flex items-center gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800">
               <button onClick={() => setIsPlaying(!isPlaying)} className="p-2 hover:bg-zinc-800 rounded text-zinc-300 hover:text-white transition-colors">
                 {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
@@ -398,31 +385,17 @@ const App: React.FC = () => {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           
           {/* Status Indicator */}
           {processingStatus !== ProcessingStatus.IDLE && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 text-xs">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 text-xs animate-pulse">
               <Loader2 size={12} className="animate-spin" />
               <span>{statusMessage}</span>
             </div>
           )}
 
-          {/* Sync Tool */}
-          <div className="relative group">
-             <button className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors" title="Sync Offset">
-                <ArrowRightLeft size={18} />
-             </button>
-             <div className="absolute top-full right-0 mt-2 w-32 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl p-1 hidden group-hover:block z-50">
-                <div className="text-[10px] text-zinc-500 px-2 py-1 uppercase tracking-wider">Nudge Subs</div>
-                <button onClick={() => handleSync(-100)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-zinc-800 rounded text-zinc-300">- 0.1s</button>
-                <button onClick={() => handleSync(100)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-zinc-800 rounded text-zinc-300">+ 0.1s</button>
-                <button onClick={() => handleSync(-500)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-zinc-800 rounded text-zinc-300">- 0.5s</button>
-                <button onClick={() => handleSync(500)} className="w-full text-left px-2 py-1.5 text-xs hover:bg-zinc-800 rounded text-zinc-300">+ 0.5s</button>
-             </div>
-          </div>
-
-          <div className="h-6 w-px bg-zinc-800"></div>
+          <div className="hidden md:block h-6 w-px bg-zinc-800"></div>
 
           {/* Primary Tools */}
           <button 
@@ -431,44 +404,44 @@ const App: React.FC = () => {
              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-xs font-semibold shadow-lg shadow-indigo-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Sparkles size={14} />
-            Generate
+            <span className="hidden sm:inline">Generate</span>
           </button>
 
-          <div className="relative group">
-            <button className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md text-xs font-medium border border-zinc-700 transition-colors">
+          {/* Translate Tool - Click to Toggle */}
+          <div className="relative">
+            <button 
+              onClick={() => setIsTranslateOpen(!isTranslateOpen)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                isTranslateOpen 
+                  ? 'bg-zinc-800 text-white border-zinc-700' 
+                  : 'bg-zinc-900 text-zinc-200 border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700'
+              }`}
+            >
               <Globe size={14} />
-              Translate
+              <span className="hidden sm:inline">Translate</span>
             </button>
-            <div className="absolute top-full right-0 mt-2 w-40 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl py-1 hidden group-hover:block z-50 max-h-60 overflow-y-auto custom-scrollbar">
-              {LANGUAGES.map(lang => (
-                <button 
-                  key={lang.code}
-                  onClick={() => handleTranslate(lang.name)}
-                  className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors flex justify-between"
-                >
-                  {lang.name}
-                  <span className="text-zinc-600 uppercase text-[10px]">{lang.code}</span>
-                </button>
-              ))}
-            </div>
+            
+            {isTranslateOpen && (
+              <div className="absolute top-full right-0 mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl py-1 z-50 max-h-60 overflow-y-auto custom-scrollbar">
+                {LANGUAGES.map(lang => (
+                  <button 
+                    key={lang.code}
+                    onClick={() => handleTranslate(lang.name)}
+                    className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors flex justify-between"
+                  >
+                    {lang.name}
+                    <span className="text-zinc-600 uppercase text-[10px]">{lang.code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-
-          {/* AI Dub Button */}
-          <button
-             onClick={handleDubbing}
-             disabled={processingStatus !== ProcessingStatus.IDLE && processingStatus !== ProcessingStatus.READY}
-             className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-md text-xs font-semibold shadow-lg shadow-emerald-900/20 transition-all disabled:opacity-50"
-             title="Generate AI Voiceover"
-          >
-             <Mic size={14} />
-             AI Dub
-          </button>
 
           <button 
              onClick={() => handleExport('srt')}
              disabled={subtitles.length === 0}
              className="p-2 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-900/10 rounded transition-colors disabled:opacity-30"
-             title="Export SRT"
+             title="Download SRT"
           >
              <Download size={18} />
           </button>
@@ -499,28 +472,21 @@ const App: React.FC = () => {
                className="ml-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 bg-amber-500/10 text-amber-500 rounded border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
              >
                 <Shield size={10} />
-                ADMIN
              </button>
           )}
         </div>
       </header>
       
-      {/* Dubbing Progress Bar (Overlay) */}
-      {dubbingProgress > 0 && dubbingProgress < 100 && (
-         <div className="absolute top-16 left-0 right-0 h-1 bg-zinc-900 z-50">
-            <div 
-               className="h-full bg-emerald-500 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-               style={{ width: `${dubbingProgress}%` }}
-            />
-         </div>
-      )}
-
-      {/* Main Workspace */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main Workspace - Responsive Layout */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
         
-        {/* Video Area */}
-        <div className="flex-1 bg-black relative flex flex-col">
-          <div className="flex-1 relative">
+        {/* Left/Top Area: Video + Timeline */}
+        {/* Mobile: Top Section has fixed/controlled height to prevent taking over. Desktop: Flex-1 */}
+        <div className="flex flex-col min-w-0 order-1 w-full md:flex-1 border-b md:border-b-0 md:border-r border-zinc-800">
+          
+          {/* Player Container */}
+          {/* Mobile: h-[30vh] for compactness. Desktop: Flex-1 */}
+          <div className="relative bg-black flex items-center justify-center overflow-hidden h-[30vh] md:h-auto md:flex-1 shrink-0">
              <VideoPlayer 
                mediaUrl={mediaUrl}
                currentTime={currentTime}
@@ -530,16 +496,15 @@ const App: React.FC = () => {
                setIsPlaying={setIsPlaying}
                volume={volume}
                isMuted={isMuted}
-               dubAudioUrl={dubAudioUrl}
              />
              
              {/* Subtitle Overlay (Preview) */}
              {mediaUrl && (
-               <div className="absolute bottom-12 left-0 right-0 text-center pointer-events-none px-8">
+               <div className="absolute bottom-12 left-0 right-0 text-center pointer-events-none px-4 md:px-8">
                  {subtitles
                    .filter(s => currentTime >= s.startTime && currentTime <= s.endTime)
                    .map(s => (
-                     <div key={s.id} className="inline-block bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded text-lg md:text-xl font-medium shadow-lg mb-2 whitespace-pre-wrap">
+                     <div key={s.id} className="inline-block bg-black/60 backdrop-blur-sm text-white px-2 py-1 md:px-3 md:py-1.5 rounded text-sm md:text-xl font-medium shadow-lg mb-2 whitespace-pre-wrap">
                        {s.text}
                      </div>
                    ))}
@@ -547,24 +512,34 @@ const App: React.FC = () => {
              )}
           </div>
 
-          {/* Timeline */}
-          <div className="h-36 shrink-0 bg-zinc-950 border-t border-zinc-800 relative flex flex-col z-10">
+          {/* Timeline - Fixed height */}
+          {/* Mobile: h-28. Desktop: h-36 */}
+          <div className="h-28 md:h-36 shrink-0 bg-zinc-950 border-t border-zinc-800 relative flex flex-col z-10">
+             {/* Timeline Toolbar (Zoom + History + Sync) */}
              <div className="absolute top-2 right-4 flex gap-1 z-20">
-                <button onClick={() => setZoomLevel(Math.max(5, zoomLevel - 5))} className="p-1 bg-zinc-800 rounded text-zinc-400 hover:text-white"><ZoomOut size={12} /></button>
-                <button onClick={() => setZoomLevel(Math.min(100, zoomLevel + 5))} className="p-1 bg-zinc-800 rounded text-zinc-400 hover:text-white"><ZoomIn size={12} /></button>
+                {/* Sync Buttons */}
+                <div className="flex gap-px mr-2">
+                   <button onClick={() => handleSync(-50)} className="p-1 bg-zinc-900 border border-zinc-800 rounded-l text-zinc-400 hover:text-white hover:bg-zinc-800 text-[10px] font-mono px-2" title="-50ms">-</button>
+                   <button onClick={() => handleSync(50)} className="p-1 bg-zinc-900 border border-zinc-800 rounded-r text-zinc-400 hover:text-white hover:bg-zinc-800 text-[10px] font-mono px-2" title="+50ms">+</button>
+                </div>
+
+                <div className="w-px h-6 bg-zinc-800 mx-1"></div>
+
+                <button onClick={() => setZoomLevel(Math.max(5, zoomLevel - 5))} className="p-1 bg-zinc-800 rounded text-zinc-400 hover:text-white hidden sm:block"><ZoomOut size={12} /></button>
+                <button onClick={() => setZoomLevel(Math.min(100, zoomLevel + 5))} className="p-1 bg-zinc-800 rounded text-zinc-400 hover:text-white hidden sm:block"><ZoomIn size={12} /></button>
                 
-                <div className="w-px h-4 bg-zinc-700 mx-1"></div>
+                <div className="w-px h-6 bg-zinc-700 mx-1 hidden sm:block"></div>
                 
                 <button onClick={undo} disabled={historyIndex <= 0} className="p-1 bg-zinc-800 rounded text-zinc-400 hover:text-white disabled:opacity-30"><Undo size={12} /></button>
                 <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-1 bg-zinc-800 rounded text-zinc-400 hover:text-white disabled:opacity-30"><Redo size={12} /></button>
              </div>
+             
              <Timeline 
                duration={duration} 
                currentTime={currentTime} 
                subtitles={subtitles} 
                onSeek={(t) => {
                  setCurrentTime(t);
-                 // If dragging timeline, ensure we pause slightly or update smoothly
                }}
                zoomLevel={zoomLevel}
              />
@@ -572,7 +547,8 @@ const App: React.FC = () => {
         </div>
 
         {/* Sidebar Editor */}
-        <div className="w-[350px] md:w-[400px] border-l border-zinc-800 bg-zinc-950 flex flex-col shrink-0 z-20 shadow-2xl">
+        {/* Mobile: flex-1 to take remaining vertical space. Desktop: Fixed width. */}
+        <div className="flex-1 md:flex-none w-full md:w-[400px] bg-zinc-950 flex flex-col shrink-0 z-20 shadow-2xl order-2">
           <SubtitleEditor 
             subtitles={subtitles}
             currentTime={currentTime}
@@ -580,7 +556,6 @@ const App: React.FC = () => {
             onUpdateSubtitle={(id, updates) => {
               const newSubs = subtitles.map(s => s.id === id ? { ...s, ...updates } : s);
               setSubtitles(newSubs);
-              // We defer history add to onCommitChanges
             }}
             onCommitChanges={() => {
                addToHistory(subtitles);
@@ -614,10 +589,9 @@ const App: React.FC = () => {
              // Handle Drive Import
              setProcessingStatus(ProcessingStatus.UPLOADING);
              setMediaName(name);
-             setMediaUrl(url); // In real app, this would be a proxied URL or downloaded blob
+             setMediaUrl(url); 
              setSubtitles([]);
              setHistory([]);
-             setDubAudioUrl(null);
              
              // Simulate "downloading" delay
              setTimeout(() => {
@@ -625,11 +599,22 @@ const App: React.FC = () => {
              }, 1000);
          }}
          onExport={() => {
-             // Handle Drive Save
-             // In a real app, we'd upload the blobs here
              logAction('EXPORT', { fileName: mediaName, format: 'drive-backup' });
          }}
       />
+      
+      {/* Styles for indeterminate progress bar */}
+      <style>{`
+        @keyframes progress-indeterminate {
+          0% { left: -35%; width: 30%; }
+          50% { left: 35%; width: 60%; }
+          100% { left: 100%; width: 30%; }
+        }
+        .animate-progress-indeterminate {
+          position: relative;
+          animation: progress-indeterminate 1.5s infinite linear;
+        }
+      `}</style>
     </div>
   );
 };
